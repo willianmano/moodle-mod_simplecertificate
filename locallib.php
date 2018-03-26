@@ -2429,6 +2429,13 @@ class simplecertificate {
 
             groups_print_activity_menu($this->coursemodule, $url);
 
+            // Add to  values to constants.
+            $selectoptions = array('allusers' => get_string('allusers', 'simplecertificate'));
+            $select = new single_select($url, 'issuelist', $selectoptions, $issuelist);
+            $select->label = get_string('showusers', 'simplecertificate');
+            echo $OUTPUT->render($select);
+            echo '<br>';
+
             echo '<form id="bulkissue" name="bulkissue" method="post" action="view.php">';
 
             echo html_writer::label(get_string('bulkaction', 'simplecertificate'), 'menutype', true);
@@ -2547,7 +2554,7 @@ class simplecertificate {
         // Print QR code in first page (if enable).
         $this->print_tags_qrcode($pdf, $user);
 
-        $fullname = ucwords(mb_strtolower($user->firstname . ' ' . $user->lastname));
+        $fullname = ucwords(strtolower($user->firstname . ' ' . $user->lastname));
         $firstlastname = '';
 
         $conectivos = array('da', 'de', 'do', 'e', 'das', 'dos');
