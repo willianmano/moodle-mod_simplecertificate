@@ -278,6 +278,5 @@ $string['eventcertificate_verified_description'] = 'The user with id {$a->userid
 $string['deleteall'] = "Delete All";
 $string['deleteselected'] = "Delete Selected";
 
-
-
-
+$string['printtags'] = 'Print tags';
+$string['printtag'] = 'Print tag';

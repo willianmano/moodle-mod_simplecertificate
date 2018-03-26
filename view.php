@@ -116,6 +116,16 @@ switch ($tab) {
         }
     break;
 
+    case $simplecertificate::PRINT_TAG_CERTIFCADES_VIEW :
+        // Verify if user can access this page
+        // avoid the access by adding tab=1 in post/get.
+        if ($canmanage) {
+            $simplecertificate->view_tags($url, $selectedusers);
+        } else {
+            print_error('nopermissiontoviewpage');
+        }
+    break;
+
     default :
         $simplecertificate->view_default($url, $canmanage);
     break;

@@ -283,3 +283,6 @@ $string['eventcertificate_verified_description'] = 'O usuário com o id {$a->use
 
 $string['deleteall'] = "Remover todos";
 $string['deleteselected'] = "Remover Selecionados";
+
+$string['printtags'] = 'Print tags';
+$string['printtag'] = 'Print tag';

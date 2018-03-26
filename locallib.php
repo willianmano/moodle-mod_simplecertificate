@@ -66,6 +66,7 @@ class simplecertificate {
     const DEFAULT_VIEW = 0;
     const ISSUED_CERTIFCADES_VIEW = 1;
     const BULK_ISSUE_CERTIFCADES_VIEW = 2;
+    const PRINT_TAG_CERTIFCADES_VIEW = 3;
 
     // Pagination.
     const SIMPLECERT_MAX_PER_PAGE = 200;
@@ -1789,6 +1790,10 @@ class simplecertificate {
                                 $url->out(false, array('tab' => self::BULK_ISSUE_CERTIFCADES_VIEW)),
                                 get_string('bulkview', 'simplecertificate'));
 
+        $tabs[] = new tabobject(self::PRINT_TAG_CERTIFCADES_VIEW,
+                                $url->out(false, array('tab' => self::PRINT_TAG_CERTIFCADES_VIEW)),
+                                get_string('printtags', 'simplecertificate'));
+
         if (!$url->get_param('tab')) {
             $tab = self::DEFAULT_VIEW;
         } else {
@@ -2377,6 +2382,215 @@ class simplecertificate {
             exit();
         }
         echo $OUTPUT->footer();
+    }
+
+    public function view_tags(moodle_url $url, array $selectedusers = null) {
+        global $OUTPUT, $CFG, $DB;
+
+        $coursectx = context_course::instance($this->get_course()->id);
+
+        $page = $url->get_param('page');
+        $perpage = $url->get_param('perpage');
+        $issuelist = $url->get_param('issuelist');
+        $action = $url->get_param('action');
+        $type = $url->get_param('type');
+        $groupid = 0;
+        $groupmode = groups_get_activity_groupmode($this->coursemodule);
+        if ($groupmode) {
+            $groupid = groups_get_activity_group($this->coursemodule, true);
+        }
+
+        $pagestart = intval($page * $perpage);
+        $usercount = 0;
+        if (!$selectedusers) {
+            $users = get_enrolled_users($coursectx, '', $groupid);
+            $usercount = count($users);
+        } else {
+            list($sqluserids, $params) = $DB->get_in_or_equal($selectedusers);
+            $sql = "SELECT * FROM {user} WHERE id $sqluserids";
+            // Adding sort.
+            $sort = '';
+            $override = new stdClass();
+            $override->firstname = 'firstname';
+            $override->lastname = 'lastname';
+            $fullnamelanguage = get_string('fullnamedisplay', '', $override);
+            if (($CFG->fullnamedisplay == 'firstname lastname') || ($CFG->fullnamedisplay == 'firstname') ||
+                ($CFG->fullnamedisplay == 'language' && $fullnamelanguage == 'firstname lastname')) {
+                $sort = " ORDER BY firstname, lastname";
+            } else {
+                $sort = " ORDER BY lastname, firstname";
+            }
+            $users = $DB->get_records_sql($sql . $sort, $params);
+        }
+
+        if (!$action) {
+            echo $OUTPUT->header();
+            $this->show_tabs($url);
+
+            groups_print_activity_menu($this->coursemodule, $url);
+
+            echo '<form id="bulkissue" name="bulkissue" method="post" action="view.php">';
+
+            echo html_writer::label(get_string('bulkaction', 'simplecertificate'), 'menutype', true);
+            echo '&nbsp;';
+
+            $selectoptions = array('pdf' => get_string('onepdf', 'simplecertificate'));
+            echo html_writer::select($selectoptions, 'type', $type);
+            $table = new html_table();
+            $table->width = "95%";
+            $table->tablealign = "center";
+            $table->head = array(get_string('fullname'), get_string('printtag', 'simplecertificate'));
+            $table->align = array("left", "center");
+            $table->size = array('90%', '10%');
+
+            // BUG #157, the paging is afecting download files,
+            // so only apply paging when displaying users.
+            $users = array_slice($users, $pagestart, $perpage);
+
+            foreach ($users as $user) {
+                $canissue = $this->can_issue($user, $issuelist != 'allusers');
+                if (empty($canissue)) {
+                    $name = $OUTPUT->user_picture($user) . fullname($user);
+                    $table->data[] = array($name, $this->get_grade($user->id));
+                }
+            }
+
+            $downloadbutton = $OUTPUT->single_button($url->out_as_local_url(false, array('action' => 'download')),
+                get_string('bulkbuttonlabel', 'simplecertificate'));
+
+            echo $OUTPUT->paging_bar($usercount, $page, $perpage, $url);
+            echo '<br />';
+            echo html_writer::table($table);
+            echo html_writer::tag('div', $downloadbutton, array('style' => 'text-align: center'));
+            echo '</form>';
+
+        } else if ($action == 'download') {
+            $type = $url->get_param('type');
+
+            // Calculate file name.
+            $filename = str_replace(' ', '_',
+                clean_filename(
+                    $this->get_instance()->coursename . ' ' .
+                    get_string('modulenameplural', 'simplecertificate') . ' ' .
+                    strip_tags(format_string($this->get_instance()->name, true)) . '.' .
+                    strip_tags(format_string($type, true))));
+
+            $pdf = $this->create_tag_pdf_object();
+
+            foreach ($users as $user) {
+                $canissue = $this->can_issue($user, $issuelist != 'allusers');
+                if (empty($canissue)) {
+                    // To one pdf file.
+                    $this->create_tags_pdf($user, $pdf, true);
+                }
+            }
+
+            $pdf->Output($filename, 'D');
+
+            exit();
+        }
+        echo $OUTPUT->footer();
+    }
+
+    /**
+     * Create PDF object using parameters
+     *
+     * @return PDF
+     */
+    protected function create_tag_pdf_object() {
+
+        // Default orientation is Landescape.
+        $orientation = 'L';
+
+        if ($this->get_instance()->height > $this->get_instance()->width) {
+            $orientation = 'P';
+        }
+
+        // Remove commas to avoid a bug in TCPDF where a string containing a commas will result in two strings.
+        $keywords = get_string('keywords', 'simplecertificate') . ',' . format_string($this->get_instance()->coursename, true);
+        $keywords = str_replace(",", " ", $keywords); // Replace commas with spaces.
+        $keywords = str_replace("  ", " ", $keywords); // Replace two spaces with one.
+
+        $pdf = new pdf($orientation, 'mm', array(75, 50), true, 'UTF-8');
+        $pdf->SetTitle($this->get_instance()->name);
+        $pdf->SetSubject($this->get_instance()->name . ' - ' . $this->get_instance()->coursename);
+        $pdf->SetKeywords($keywords);
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetAutoPageBreak(false, 0);
+        $pdf->setFontSubsetting(true);
+        $pdf->SetMargins(0, 0, 0, true);
+
+        return $pdf;
+    }
+
+    /**
+     * Create certificate PDF file
+     *
+     * @param stdClass $user The user obeject
+     * @param PDF $pdf A PDF object, if null will create one
+     * @param bool $isbulk Tell if it is a bulk operation or not
+     * @return mixed PDF object or error
+     */
+    protected function create_tags_pdf(stdClass $user, $pdf = null, $isbulk = false) {
+        global $CFG;
+
+        if (empty($pdf)) {
+            $pdf = $this->create_tag_pdf_object();
+        }
+
+        $pdf->AddPage();
+
+        // Getting certificare image.
+        $fs = get_file_storage();
+
+        // Print QR code in first page (if enable).
+        $this->print_tags_qrcode($pdf, $user);
+
+        $fullname = ucwords(mb_strtolower($user->firstname . ' ' . $user->lastname));
+        $firstlastname = '';
+
+        $conectivos = array('da', 'de', 'do', 'e', 'das', 'dos');
+        foreach ($conectivos as $conectivo) {
+            $firstlastname = str_replace($conectivo, '', $fullname);
+        }
+
+        $fullnamearr = explode(' ', $firstlastname);
+
+        $name = array_pop($fullnamearr);
+        $name = current($fullnamearr) . ' ' . $name;
+
+        $name = "<h2>{$name}</h2>";
+        $pdf->SetXY(0, 30);
+        $pdf->writeHTMLCell(75, 10, '', '', $name, 0, 0, 0,
+            true, 'C');
+
+        $pdf->SetXY(0, 40);
+        $pdf->writeHTMLCell(75, 10, '', '', $firstlastname, 0, 0, 0,
+            true, 'C');
+
+        return $pdf;
+    }
+
+    /**
+     * Put a QR code in cerficate pdf object
+     *
+     * @param pdf $pdf The pdf object
+     * @param string $user The user object
+     */
+    protected function print_tags_qrcode($pdf, $user) {
+        $style = array('border' => 0, 'vpadding' => 'auto', 'hpadding' => 'auto',
+            'fgcolor' => array(0, 0, 0),  // Black.
+            'bgcolor' => array(255, 255, 255), // White.
+            'module_width' => 1, // Width of a single module in points.
+            'module_height' => 1); // Height of a single module in points.
+
+        $qrcode = $user->id . ',' . sha1(
+                    'IrcOsoicellooketCalkaumsEkWijfilImFokDoidLidMafniwrendyecet/' . $user->id
+                );
+
+        $pdf->write2DBarcode($qrcode, 'QRCODE,M', 25, 2, 25, 25,
+            $style, 'N');
     }
 
     /**
