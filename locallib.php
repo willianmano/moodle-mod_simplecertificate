@@ -2554,7 +2554,7 @@ class simplecertificate {
         // Print QR code in first page (if enable).
         $this->print_tags_qrcode($pdf, $user);
 
-        $fullname = ucwords(strtolower($user->firstname . ' ' . $user->lastname));
+        $fullname = ucwords(mb_strtolower($user->firstname . ' ' . $user->lastname, 'UTF-8'));
         $firstlastname = '';
 
         $conectivos = array('da', 'de', 'do', 'e', 'das', 'dos');
